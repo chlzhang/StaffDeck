@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import time
 from typing import Any
@@ -42,6 +43,8 @@ def create_access_token(user: User) -> str:
         "tenant_id": user.tenant_id,
         "user_id": user.id,
         "username": user.username,
+        "iat": time.time(),
+        "jti": os.urandom(24).hex(),
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
     }
     body = _b64(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -63,7 +66,7 @@ def get_current_user(
         from staffdeck_harness.runtime.services import bind_authenticated_session
         bind_authenticated_session(db)
         return user
-    payload = _decode_token(credentials.credentials)
+    payload = validate_access_token(credentials.credentials, db)
     user = db.get(User, payload.get("user_id", ""))
     if not user or user.tenant_id != payload.get("tenant_id"):
         raise HTTPException(status_code=401, detail="Invalid user token")
@@ -86,7 +89,7 @@ def require_current_tenant(
     return current_user
 
 
-def _decode_token(token: str) -> dict[str, Any]:
+def _decode_token(token: str, *, allow_expired: bool = False) -> dict[str, Any]:
     try:
         body, signature = token.split(".", 1)
     except ValueError as exc:
@@ -97,8 +100,23 @@ def _decode_token(token: str) -> dict[str, Any]:
         payload = json.loads(base64.urlsafe_b64decode(_pad_b64(body)).decode("utf-8"))
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid token payload") from exc
-    if int(payload.get("exp", 0)) < int(time.time()):
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("exp"), int)
+        or isinstance(payload["exp"], bool)
+        or any(not isinstance(payload.get(key), str) or not payload[key] for key in ("user_id", "tenant_id"))
+        or ("iat" in payload and (type(payload["iat"]) not in (int, float) or not math.isfinite(payload["iat"])))
+    ):
+        raise HTTPException(401, "Invalid token payload")
+    if not allow_expired and payload["exp"] <= int(time.time()):
         raise HTTPException(status_code=401, detail="Token expired")
+    return payload
+
+
+def validate_access_token(token: str, db: Session) -> dict[str, Any]:
+    from app.security.auth_sessions import validate_local_session
+    payload = _decode_token(token)
+    validate_local_session(db, token, payload)
     return payload
 
 

@@ -11,12 +11,15 @@ from app.api import (
     agents,
     app_updates,
     auth,
+    data_policies,
     channels,
     chat,
     evolution,
     feedback,
     general_skills,
     knowledge,
+    knowledge_answers,
+    knowledge_governance,
     knowledge_bases,
     memories,
     mock,
@@ -151,6 +154,9 @@ app.include_router(chat.router)
 app.include_router(agents.chat_router)
 app.include_router(ui_config.chat_router)
 app.include_router(auth.router)
+app.include_router(data_policies.router, dependencies=[Depends(module_policy("knowledge_base", use_endpoints=("register_document", "register_input", "answer", "answer_stream")))])
+app.include_router(knowledge_answers.router, dependencies=[Depends(module_policy("knowledge_base", use_endpoints=("prepare", "answer_request")))])
+app.include_router(knowledge_governance.router, dependencies=[Depends(module_policy("knowledge_base"))])
 app.include_router(agents.scope_router)
 app.include_router(agents.enterprise_router, dependencies=[Depends(module_policy("agent"))])
 app.include_router(general_skills.router, dependencies=[Depends(module_policy("general_skill"))])

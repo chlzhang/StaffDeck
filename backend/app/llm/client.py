@@ -89,7 +89,14 @@ class _CurrentStageText(str):
 
 
 class LLMClient:
-    def __init__(self, model_config: ModelConfig):
+    def __init__(self, model_config: ModelConfig, *, policy_session=None, transport=None):
+        from app.security.data_policy_store import model_digest
+        from app.security.model_egress import GuardedModelTransport
+
+        self.model_config_id = model_config.id
+        self.model_policy_stamp = model_digest(model_config)
+        self._model_policy_session = policy_session
+        self._egress_transport = GuardedModelTransport(transport if transport is not None else httpx.HTTPTransport())
         try:
             protocol = ModelApiProtocol(
                 getattr(model_config, "api_protocol", "openai_chat_completions")
@@ -104,12 +111,15 @@ class LLMClient:
             or get_settings().model_api_timeout_seconds
             or DEFAULT_MODEL_API_TIMEOUT_SECONDS
         )
+        guarded_http = httpx.Client(transport=self._egress_transport, trust_env=False,
+                                    follow_redirects=False, timeout=self.timeout_seconds)
         self.base_url = str(model_config.base_url or "")
         if protocol is ModelApiProtocol.OPENAI_CHAT_COMPLETIONS:
             self.client = OpenAI(
                 api_key=api_key,
                 base_url=self.base_url,
                 timeout=self.timeout_seconds,
+                http_client=guarded_http,
             )
             self.driver = ChatCompletionsDriver(self.client)
         elif protocol is ModelApiProtocol.OPENAI_RESPONSES:
@@ -117,6 +127,7 @@ class LLMClient:
                 api_key=api_key,
                 base_url=self.base_url,
                 timeout=self.timeout_seconds,
+                http_client=guarded_http,
             )
             self.driver = OpenAIResponsesDriver(self.client)
         elif protocol is ModelApiProtocol.ANTHROPIC_MESSAGES:
@@ -124,6 +135,7 @@ class LLMClient:
                 "api_key": api_key,
                 "timeout": self.timeout_seconds,
                 "max_retries": 0,
+                "http_client": guarded_http,
             }
             if self.base_url:
                 # Anthropic's SDK always appends /v1/messages. If an operator
@@ -140,7 +152,7 @@ class LLMClient:
             self.client = Anthropic(**kwargs)
             self.driver = AnthropicMessagesDriver(self.client)
         elif protocol is ModelApiProtocol.GEMINI_GENERATE_CONTENT:
-            self.client = httpx.Client(timeout=self.timeout_seconds)
+            self.client = guarded_http
             self.driver = GeminiGenerateContentDriver(
                 self.client,
                 self.base_url,
@@ -171,6 +183,19 @@ class LLMClient:
             )
         )
 
+        from app.security.model_egress import configure_transport
+        configure_transport(self, self._egress_transport, api_key)
+
+    def _require_trusted_dispatch(self):
+        from app.security.data_policy import DataPolicyError
+        session = getattr(self, "_model_policy_session", None)
+        if session is None:
+            raise DataPolicyError("DATA_TRUSTED_DISPATCH_REQUIRED")
+        return session
+
+    def close(self):
+        self.client.close()
+
     def generate_text(
         self,
         system_prompt: str,
@@ -178,6 +203,9 @@ class LLMClient:
         response_format: dict[str, str] | None = None,
         cancellation: CancellationToken | None = None,
     ) -> str:
+        session = self._require_trusted_dispatch()
+        session.check_input(self, system_prompt, user_payload, response_format=response_format)
+        return session.complete(self)
         operation = current_llm_operation()
         max_output_tokens = operation_output_tokens(operation, self.max_output_tokens)
         empty_response_retries = operation_empty_response_retries(
@@ -306,6 +334,10 @@ class LLMClient:
         user_payload: dict[str, Any] | str,
         cancellation: CancellationToken | None = None,
     ) -> Iterator[str]:
+        session = self._require_trusted_dispatch()
+        session.check_input(self, system_prompt, user_payload)
+        yield from session.stream(self)
+        return
         operation = current_llm_operation()
         max_output_tokens = operation_output_tokens(operation, self.max_output_tokens)
         empty_response_retries = operation_empty_response_retries(

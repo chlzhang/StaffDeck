@@ -7,6 +7,18 @@ from uuid import uuid4
 from sqlalchemy import JSON, Column, Index, Integer, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from app.security.auth_session_models import (
+    LocalAuthFence as LocalAuthFence,
+    LocalTokenRevocation as LocalTokenRevocation,
+)
+
+from app.security.data_policy_models import (
+    DataEnvelope as DataEnvelope,
+    DataPolicyAudit as DataPolicyAudit,
+    DataResourcePolicy as DataResourcePolicy,
+    ProviderDataPolicy as ProviderDataPolicy,
+)
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)

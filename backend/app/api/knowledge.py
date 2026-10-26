@@ -705,19 +705,19 @@ def search_knowledge(
                 decisions[base_id] = False
         if decisions[base_id]:
             permitted_versions.append(version_id)
-    visible_version_ids = permitted_versions
-    if not visible_version_ids:
-        trace = [{"phase": "no_visible_knowledge", "message": "当前范围没有可见知识"}]
-        return KnowledgeSearchResponse(trace=trace, route_trace=trace)
     if request.knowledge_base_version_ids:
-        allowed_ids = set(visible_version_ids)
-        request.knowledge_base_version_ids = [
+        allowed_ids = set(permitted_versions)
+        visible_version_ids = [
             version_id
             for version_id in request.knowledge_base_version_ids
             if version_id in allowed_ids
         ]
     else:
-        request.knowledge_base_version_ids = visible_version_ids
+        visible_version_ids = permitted_versions
+    if not visible_version_ids:
+        trace = [{"phase": "no_visible_knowledge", "message": "当前范围没有可见知识"}]
+        return KnowledgeSearchResponse(trace=trace, route_trace=trace)
+    request.knowledge_base_version_ids = visible_version_ids
     return KnowledgeService(db).search(request, model_config)
 
 

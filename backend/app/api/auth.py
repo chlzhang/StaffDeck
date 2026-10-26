@@ -200,7 +200,10 @@ def refresh_control_session(request: Request, response: Response, db: Session = 
     _control_origin(request)
     control = provider()
     token = request.cookies.get(CONTROL_REFRESH_COOKIE)
-    if not token or control is None or not callable(getattr(control, "refresh", None)):
+    if control is None:
+        raise HTTPException(401, {"code": "LOCAL_REFRESH_UNAVAILABLE",
+                                  "message": "本地会话不支持刷新，请重新登录。"})
+    if not token or not callable(getattr(control, "refresh", None)):
         raise HTTPException(401, "Control session expired")
     result = control.refresh(token)
     user = project_subject(db, result.subject)
@@ -220,10 +223,23 @@ def confirm_temporary_password(body: PasswordChangeConfirmRequest, request: Requ
 
 
 @router.post("/logout")
-def logout_control_session(request: Request, response: Response):
+def logout_control_session(request: Request, response: Response, db: Session = Depends(get_session)):
     from staffdeck_harness.runtime.control_auth import provider
     _control_origin(request)
     control = provider()
+    if control is None:
+        from app.security.auth import _decode_token
+        from app.security.auth_sessions import revoke_local_session
+        authorization = request.headers.get("authorization", "")
+        if authorization:
+            scheme, _, bearer = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not bearer:
+                raise HTTPException(401, "Invalid token")
+            payload = _decode_token(bearer, allow_expired=True)
+            user = db.get(User, payload["user_id"])
+            if not user or user.tenant_id != payload["tenant_id"]:
+                raise HTTPException(401, "Invalid user token")
+            revoke_local_session(db, bearer, payload)
     token = request.cookies.get(CONTROL_REFRESH_COOKIE)
     if token and control is not None and callable(getattr(control, "logout", None)):
         control.logout(token)

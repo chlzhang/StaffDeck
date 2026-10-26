@@ -11,6 +11,7 @@ export type EnterpriseAuthUser = {
 };
 
 export type EnterpriseAuthSession = {
+  refresh_mode?: 'cookie' | 'none';
   token: string;
   user: EnterpriseAuthUser;
 };

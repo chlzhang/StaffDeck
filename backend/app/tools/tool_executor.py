@@ -244,7 +244,15 @@ class ToolExecutor:
             if existing is not None:
                 if existing.user_id != user_id or existing.request_json != arguments:
                     return self._error(tool.name, "IDEMPOTENCY_CONFLICT", "该调用标识已经用于其他请求，本次未执行。")
-                return self._detached_acceptance_result(tool, existing)
+                claim = self.db.info.get("tool_test_claim")
+                if ((existing.status_config_json or {}).get("_tool_test_request")
+                        and claim == (existing.id, existing.lease_owner)
+                        and existing.status == "submitting"):
+                    # Transfer the reserved receipt to this enqueue; never create
+                    # a second task or let a duplicate HTTP caller reclaim it.
+                    reserved = existing
+                else:
+                    return self._detached_acceptance_result(tool, existing)
         callback_token = new_callback_token()
         status_url = str(execution.get("status_url") or "").strip() or None
         poll_interval_seconds = max(
@@ -279,6 +287,24 @@ class ToolExecutor:
             next_poll_at=None,
             expires_at=utc_now() + timedelta(seconds=max_tracking_seconds),
         )
+        if "reserved" in locals():
+            values = task.model_dump(exclude={"id", "created_at"})
+            values["status_config_json"] = {**task.status_config_json,
+                "_tool_test_request": reserved.status_config_json["_tool_test_request"]}
+            from sqlalchemy import update
+            moved = self.db.exec(update(ExternalBusinessTask).where(
+                ExternalBusinessTask.id == reserved.id,
+                ExternalBusinessTask.status == "submitting",
+                ExternalBusinessTask.lease_owner == self.db.info["tool_test_claim"][1],
+                ExternalBusinessTask.lease_expires_at > utc_now(),
+            ).values(**values).execution_options(synchronize_session=False))
+            if moved.rowcount != 1:
+                self.db.rollback()
+                self.db.refresh(reserved)
+                return self._detached_acceptance_result(tool, reserved)
+            self.db.commit()
+            self.db.refresh(reserved)
+            return self._detached_acceptance_result(tool, reserved)
         self.db.add(task)
         self.db.flush()
         if not task.idempotency_key:

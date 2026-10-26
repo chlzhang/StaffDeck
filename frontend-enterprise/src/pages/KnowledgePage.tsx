@@ -33,6 +33,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import KnowledgeGraphCanvas from '@/components/KnowledgeGraphCanvas';
+import { GovernedKnowledgeAnswer } from '@/components/knowledge/GovernedKnowledgeAnswer';
 import { ModelConfigDropdown } from '@/components/ModelConfigDropdown';
 import { Paginator } from '@/components/Paginator';
 import { ResourceImportDialog } from '@/components/ResourceImportDialog';
@@ -1272,6 +1273,12 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
             />
           )}
         </KCard>
+
+        {currentUser && <KCard title="受控问答">
+          <GovernedKnowledgeAnswer key={`${currentUser.id}:${effectiveAgentId}:${selectedDocument?.id || ""}`} document={selectedDocument}
+            agentId={effectiveAgentId || undefined} isAdmin={isEnterpriseAdmin(currentUser)}
+            currentUserId={currentUser.id} modelConfigs={modelConfigs} />
+        </KCard>}
 
         <KCard title="渐进检索调试">
           <div className="flex w-full flex-col gap-[14px]">

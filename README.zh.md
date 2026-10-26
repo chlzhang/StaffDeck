@@ -1,3 +1,5 @@
+> [合成资料隔离试装说明](ISOLATED_TRIAL.zh-CN.md)：先在独立目录使用合成资料验证；本分支不代表真实业务上线就绪。
+
 <div align="center">
 
 <img src="packaging/assets/staffdeck_banner_cn.png" alt="StaffDeck 标志"  />

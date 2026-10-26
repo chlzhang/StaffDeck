@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import delete
+from sqlalchemy import and_, delete, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -688,11 +688,13 @@ class KnowledgeService:
                     }
                 )
             span.finish(selected_count=len(selected_document_ids))
+        available_document_ids = {row.id for row in documents}
         concept_document_ids = [
             str(ref.get("document_id"))
             for concept in selected_concepts
             for ref in (concept.source_refs_json or [])
             if isinstance(ref, dict) and ref.get("document_id")
+            and str(ref["document_id"]) in available_document_ids
         ]
         selected_document_ids = _unique_strings(selected_document_ids + concept_document_ids[:3])
 
@@ -1212,9 +1214,25 @@ class KnowledgeService:
         return self.db.exec(stmt.order_by(KnowledgeDocument.updated_at.desc())).all()
 
     def _load_concepts_for_search(self, request: KnowledgeSearchRequest) -> list[KnowledgeConcept]:
+        """Keep standalone pages and pages linked to a ready source in the same scope."""
+        ready_source = select(KnowledgeDocument.id).where(
+            KnowledgeDocument.id == KnowledgeConcept.document_id,
+            KnowledgeDocument.tenant_id == KnowledgeConcept.tenant_id,
+            KnowledgeDocument.knowledge_base_id == KnowledgeConcept.knowledge_base_id,
+            KnowledgeDocument.status == "ready",
+            or_(
+                KnowledgeDocument.knowledge_base_version_id
+                == KnowledgeConcept.knowledge_base_version_id,
+                and_(
+                    KnowledgeDocument.knowledge_base_version_id.is_(None),
+                    KnowledgeConcept.knowledge_base_version_id.is_(None),
+                ),
+            ),
+        ).exists()
         stmt = select(KnowledgeConcept).where(
             KnowledgeConcept.tenant_id == request.tenant_id,
             KnowledgeConcept.status == "active",
+            or_(KnowledgeConcept.document_id.is_(None), ready_source),
         )
         if request.knowledge_base_ids:
             stmt = stmt.where(KnowledgeConcept.knowledge_base_id.in_(request.knowledge_base_ids))

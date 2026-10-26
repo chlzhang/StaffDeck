@@ -130,6 +130,7 @@ class ToolResult(BaseModel):
 
 
 class ToolTestRequest(BaseModel):
+    client_request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     tenant_id: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 

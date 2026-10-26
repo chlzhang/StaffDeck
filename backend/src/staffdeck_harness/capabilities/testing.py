@@ -13,12 +13,21 @@ from staffdeck_harness.contracts.sources import SourceContext
 from staffdeck_harness.security.profile import Guard
 
 
-def test_saved_tool(db, *, registry, profile, tenant_id, agent_id, user_id, tool_id, arguments):
+def test_saved_tool(db, *, registry, profile, tenant_id, agent_id, user_id, tool_id, arguments, client_request_id):
+    from app.tools.tool_test_requests import request_task_id, run_tool_test_once
+    identifier = request_task_id(tenant_id, user_id, client_request_id)
+    return run_tool_test_once(db, tenant_id=tenant_id, user_id=user_id, tool_id=tool_id,
+        agent_id=agent_id, client_request_id=client_request_id, arguments=arguments,
+        dispatch=lambda: _invoke_saved_tool(db, registry=registry, profile=profile,
+            tenant_id=tenant_id, agent_id=agent_id, user_id=user_id, tool_id=tool_id,
+            arguments=arguments, identifier=identifier))
+
+
+def _invoke_saved_tool(db, *, registry, profile, tenant_id, agent_id, user_id, tool_id, arguments, identifier):
     """One authorized invocation, same catalog/schema/PEP/provider/ledger as conversation."""
     try:
         staff, identity = resolve_staff(registry, db, SourceContext(tenant_id, agent_id, user_id=user_id), profile)
         snapshot = CompositionCompiler().compile(staff, generation=registry.generation, strict=False)
-        identifier = new_id("tooltest")
         # Use the existing hidden execution-test channel and persistence, not a new test runner.
         session = ChatSession(id=new_id("session"), tenant_id=tenant_id, agent_id=staff.staff_id,
                               user_id=user_id, channel="skill_test", title="工具测试")

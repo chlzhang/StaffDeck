@@ -15,7 +15,7 @@ from app.db import get_session
 from app.db.models import APIClient, APICredential, AgentProfile, User, utc_now
 from app.public_api.credential_profiles import USER_FULL_ACCESS_SCOPES
 from app.public_api.errors import PublicAPIError
-from app.security.auth import _decode_token
+from app.security.auth import validate_access_token
 from app.security.permissions import agent_owned_by_user, is_admin_user
 
 
@@ -167,7 +167,7 @@ def _bootstrap_principal(token: str, db: Session) -> PublicPrincipal:
     if control is not None:
         user = project_subject(db, control.current(token))
     else:
-        payload = _decode_token(token)
+        payload = validate_access_token(token, db)
         user = db.get(User, str(payload.get("user_id") or ""))
         if not user or user.tenant_id != payload.get("tenant_id"):
             raise PublicAPIError(401, "INVALID_USER_TOKEN", "The user token is invalid.")

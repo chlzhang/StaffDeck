@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from openai import OpenAI as RealOpenAI
 
 from app.llm.client import LLMClient, LLMError, _thinking_mode_for_model
 from app.llm.protocol_drivers import ChatCompletionsDriver, ProtocolCallError
@@ -48,13 +49,15 @@ def test_llm_client_uses_600_second_timeout(monkeypatch):
 
     def fake_openai(**kwargs):  # noqa: ANN003
         captured.update(kwargs)
-        return _FakeOpenAIClient()
+        return RealOpenAI(**kwargs)
 
     settings = type("Settings", (), {"model_api_timeout_seconds": 600.0})()
     model_config = type(
         "ModelConfig",
         (),
         {
+            "id": "constructor-model",
+            "tenant_id": "synthetic-tenant",
             "api_key_encrypted": "encrypted",
             "base_url": "https://example.test/v1",
             "model": "demo-model",
@@ -82,6 +85,7 @@ def test_llm_client_uses_600_second_timeout(monkeypatch):
         "do_sample": False,
     }
     assert client.thinking_mode == "disabled"
+    client.close()
 
 
 def test_llm_client_preserves_custom_openai_base_url(monkeypatch) -> None:
@@ -89,7 +93,7 @@ def test_llm_client_preserves_custom_openai_base_url(monkeypatch) -> None:
     monkeypatch.setattr("app.llm.client.decrypt_secret", lambda _value: "api-key")
     monkeypatch.setattr(
         "app.llm.client.OpenAI",
-        lambda **kwargs: captured.update(kwargs) or _FakeOpenAIClient(),
+        lambda **kwargs: captured.update(kwargs) or RealOpenAI(**kwargs),
     )
     monkeypatch.setattr(
         "app.llm.client.get_settings",
@@ -99,6 +103,8 @@ def test_llm_client_preserves_custom_openai_base_url(monkeypatch) -> None:
         "ModelConfig",
         (),
         {
+            "id": "constructor-model",
+            "tenant_id": "synthetic-tenant",
             "api_key_encrypted": "encrypted",
             "base_url": "https://custom-relay.example/llm",
             "model": "custom-model",
@@ -108,9 +114,10 @@ def test_llm_client_preserves_custom_openai_base_url(monkeypatch) -> None:
         },
     )()
 
-    LLMClient(config)
+    client = LLMClient(config)
 
     assert captured["base_url"] == "https://custom-relay.example/llm"
+    client.close()
 
 
 def test_model_config_create_defaults_to_8192_output_tokens():

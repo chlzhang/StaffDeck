@@ -590,7 +590,7 @@ def test_tool(
     settings = get_settings()
     result = test_saved_tool(db, registry=get_registry(settings), profile=get_profile(settings),
         tenant_id=request.tenant_id, agent_id=agent_id, user_id=current_user.id,
-        tool_id=tool_id, arguments=request.arguments)
+        tool_id=tool_id, arguments=request.arguments, client_request_id=request.client_request_id)
     name = str(result.extensions.get("tool_name") or tool_id)
     if result.success:
         if isinstance(result.data, dict) and "tool_name" in result.data and "success" in result.data:
@@ -599,6 +599,17 @@ def test_tool(
     error = result.error or {}
     return ToolResult(tool_name=name, success=False,
         error=ToolError(code=str(error.get("code") or "TOOL_TEST_FAILED"), message=str(error.get("message") or "工具测试失败")))
+
+
+@router.get("/{tool_id}/test-requests/{client_request_id}")
+def get_tool_test_request(tool_id: str, client_request_id: str, tenant_id: str,
+                          db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    ensure_current_user_tenant(tenant_id, current_user)
+    from app.tools.tool_test_requests import lookup_tool_test
+    from app.api.external_business_tasks import task_read
+    row = lookup_tool_test(db, tenant_id=tenant_id, user_id=current_user.id,
+                          tool_id=tool_id, client_request_id=client_request_id)
+    return task_read(row, db)
 
 
 def _get_tool(db: Session, tenant_id: str, tool_id: str) -> Tool:

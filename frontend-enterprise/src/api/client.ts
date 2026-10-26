@@ -1,4 +1,4 @@
-import { getEnterpriseAuthSession, setEnterpriseAuthSession, type EnterpriseAuthSession } from '../auth';
+import { getEnterpriseAuthSession, setEnterpriseAuthSession, clearEnterpriseAuthSession, type EnterpriseAuthSession } from '../auth';
 import { APP_BASE } from '../lib/app-path';
 import { ReadBackoff } from './read-backoff';
 
@@ -42,7 +42,7 @@ let authRefresh: Promise<boolean> | null = null;
 export function refreshEnterpriseAuth(): Promise<boolean> {
   if (authRefresh) return authRefresh;
   const previous = getEnterpriseAuthSession();
-  if (!previous) return Promise.resolve(false);
+  if (!previous || previous.refresh_mode === 'none') return Promise.resolve(false);
   authRefresh = (async () => {
     const response = await fetch(`${API_BASE}/api/auth/refresh`, { method: 'POST', credentials: 'same-origin' });
     if (!response.ok) return false;
@@ -358,4 +358,10 @@ function formatValidationDetail(item: unknown): string {
 
   if (location && message) return `${location}: ${message}`;
   return message;
+}
+
+/** Do not claim logout succeeded while the server may still accept the token. */
+export async function logoutEnterpriseAuth(): Promise<void> {
+  await request('/api/auth/logout', { method: 'POST' });
+  clearEnterpriseAuthSession();
 }

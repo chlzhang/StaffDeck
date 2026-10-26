@@ -32,6 +32,7 @@ class ResolvedModelConfig:
     security_revision: int
     purpose: Literal["runtime", "verification"]
     timeout_seconds: float | None = None
+    key_revision: int = 1
 
 
 def resolve_model_config_for_runtime(
@@ -98,6 +99,7 @@ def _snapshot(
         legacy_extra_body=_freeze(legacy_extra_body),
         config_revision=row.config_revision,
         security_revision=row.security_revision,
+        key_revision=row.key_revision,
         purpose=purpose,
         timeout_seconds=None,
     )
@@ -173,6 +175,7 @@ def snapshot_model_config(
         ),
         config_revision=getattr(model_config, "config_revision", 1),
         security_revision=getattr(model_config, "security_revision", 1),
+        key_revision=getattr(model_config, "key_revision", 1),
         timeout_seconds=getattr(model_config, "timeout_seconds", None),
     )
 

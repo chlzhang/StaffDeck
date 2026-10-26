@@ -2493,10 +2493,16 @@ function SavedToolTestCard({ tool, standalone = false }: { tool: ToolRead; stand
         <div className="flex items-center justify-between gap-[10px]">
           <span className={SUBSECTION_TITLE_CLASS}>调用结果</span>
           <StatusBadge tone={testRun.status === 'completed' ? 'green' : 'gray'}>
-            {testRun.status === 'tracking_blocked' ? '跟踪已暂停，请检查权限或模块；勿重复提交' : loading ? '任务进行中' : testRun.status === 'completed' ? '已完成' : testRun.status ? '任务已结束，请查看结果' : '等待调用'}
+            {testRun.status === 'outcome_unknown' ? '提交结果待核实' : ['cancelled', 'expired'].includes(testRun.status) ? '调用已停止，禁止自动重试' : testRun.status === 'tracking_blocked' ? '跟踪已暂停，请检查权限或模块；勿重复提交' : loading ? '任务进行中' : testRun.status === 'completed' ? '已完成' : testRun.status ? '任务已结束，请查看结果' : '等待调用'}
           </StatusBadge>
         </div>
-        {testRun.queryError && <p role="status" className="text-[13px] text-amber-700">状态查询暂不可用，正在重试查询，不会重复提交：{testRun.queryError}</p>}
+        <p className="text-[13px] text-amber-700">调用记录会跨页面保留。结果未知、取消或过期时只查询原任务，不会重新执行业务操作。</p>
+        <div className="flex gap-2">
+          <UIButton onClick={() => void testRun.retryStatus()}>查询原调用状态</UIButton>
+          <UIButton disabled={testRun.status !== 'completed'} onClick={testRun.startNew}>开始新的独立调用</UIButton>
+        </div>
+        {testRun.status === 'outcome_unknown' && <p role="status" className="text-[13px] text-amber-700">提交结果待核实，请先核对外部系统；此页面不会重放调用。</p>}
+        {testRun.queryError && <p role="status" className="text-[13px] text-amber-700">仅查询状态，不会重复提交：{testRun.queryError}</p>}
         {testResult ? (
           <CodeBlock className="max-h-[340px] whitespace-pre-wrap wrap-break-word" code={testResult} language="json" />
         ) : (

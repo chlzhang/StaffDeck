@@ -8,11 +8,8 @@ Request replay preserves the real receive/disconnect channel. SSE is not buffere
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import threading
-import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode
@@ -26,7 +23,6 @@ from app.api_enterprise.projections import Actor
 
 logger = logging.getLogger("staffdeck.business_compat")
 
-_ACTOR_TTL_SECONDS = 60
 _MAX_BUFFERED_BODY = 32 * 1024 * 1024
 
 NOT_AVAILABLE = "当前后端未提供此功能"
@@ -198,56 +194,28 @@ def resolve(method: str, rel: str, query: dict[str, str]) -> Plan | None:  # noq
 
 # --------------------------------------------------------------------------- actor resolution
 
-_actor_cache: dict[str, tuple[float, Actor]] = {}
-_actor_lock = threading.Lock()
-
-
 def _resolve_actor(token: str) -> Actor | None:
-    """Who is calling, from the bearer token. Cached briefly; never trusted beyond the TTL."""
-    key = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    now = time.monotonic()
-    with _actor_lock:
-        cached = _actor_cache.get(key)
-        if cached and cached[0] > now:
-            return cached[1]
-    actor = _actor_from_local_token(token)
-    if actor is None:
-        actor = _actor_from_control_provider(token)
-    if actor is not None:
-        with _actor_lock:
-            if len(_actor_cache) > 4096:
-                _actor_cache.clear()
-            _actor_cache[key] = (now + _ACTOR_TTL_SECONDS, actor)
-    return actor
+    # Never cache successful bearer authorization past a committed logout.
+    from staffdeck_harness.runtime.control_auth import provider
+    if provider() is not None:
+        return _actor_from_control_provider(token)
+    return _actor_from_local_token(token)
 
 
 def _actor_from_local_token(token: str) -> Actor | None:
-    from fastapi import HTTPException
-
-    from app.security.auth import _decode_token
-
+    from sqlmodel import Session
+    from app.db import engine
+    from app.db.models import User
+    from app.security.auth import validate_access_token
     try:
-        payload = _decode_token(token)
-    except HTTPException:
-        return None
-    user_id, tenant_id = payload.get("user_id"), payload.get("tenant_id")
-    if not user_id or not tenant_id:
-        return None
-    role = "member"
-    try:
-        from sqlmodel import Session
-
-        from app.db import engine
-        from app.db.models import User
-
         with Session(engine) as db:
-            row = db.get(User, user_id)
-            if row is None or row.tenant_id != tenant_id:
+            payload = validate_access_token(token, db)
+            row = db.get(User, payload['user_id'])
+            if row is None or row.tenant_id != payload['tenant_id']:
                 return None
-            role = row.role or role
-    except Exception:  # noqa: BLE001 - role only refines allowed_actions
-        logger.debug("business-compat: could not load user role", exc_info=True)
-    return Actor(str(user_id), str(tenant_id), str(role))
+            return Actor(row.id, row.tenant_id, row.role or 'member')
+    except Exception:  # Fail closed on token, revocation or database failure.
+        return None
 
 
 def _actor_from_control_provider(token: str) -> Actor | None:

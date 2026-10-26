@@ -7,7 +7,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { api, isAuthError, TENANT_ID } from "./api/client";
+import { api, isAuthError, logoutEnterpriseAuth, TENANT_ID } from "./api/client";
 import {
   clearEnterpriseAuthSession,
   getEnterpriseAuthSession,
@@ -1069,7 +1069,7 @@ export default function App() {
     void api.get<EnterpriseAuthUser>("/api/auth/me")
       .then((user) => {
         if (cancelled) return;
-        const refreshed = { token: getEnterpriseAuthSession()?.token || auth.token, user };
+        const refreshed = { ...getEnterpriseAuthSession(), token: getEnterpriseAuthSession()?.token || auth.token, user };
         setEnterpriseAuthSession(refreshed);
         setAuth(refreshed);
         setAuthChecked(true);
@@ -1087,11 +1087,14 @@ export default function App() {
     };
   }, [auth?.token]);
 
-  function logout() {
-    void api.post('/api/auth/logout').catch(() => undefined);
-    clearEnterpriseAuthSession();
-    setAuth(null);
-    setAuthChecked(true);
+  async function logout() {
+    try {
+      await logoutEnterpriseAuth();
+      setAuth(null);
+      setAuthChecked(true);
+    } catch {
+      notify.error('服务器未确认退出，请重试。当前会话仍可能有效。');
+    }
   }
 
   return (
